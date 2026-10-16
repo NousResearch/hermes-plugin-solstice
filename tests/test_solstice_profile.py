@@ -4,7 +4,9 @@ brokered OAuth row with an opaque bearer rotates on its stored expiry."""
 from __future__ import annotations
 
 import json
+import sys
 import time
+from pathlib import Path
 
 import hermes_cli.auth
 import providers
@@ -22,10 +24,20 @@ def _write_pool(home, provider: str, row: dict) -> None:
     (home / "auth.json").write_text(json.dumps({"version": 1, "credential_pool": {provider: [row]}}))
 
 
-def test_solstice_is_off_every_discovery_surface_until_signed_in_but_always_resolves(monkeypatch, tmp_path):
-    home = tmp_path / "hermes"
-    home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+def test_installed_plugin_overrides_the_bundled_copy(solstice_home):
+    """Releases that still bundle Solstice must run THIS repo's profile once the plugin is installed."""
+    profile = providers.get_provider_profile("solstice")
+    assert profile is not None
+    assert providers.provider_source("solstice") == "user"
+    assert providers.get_provider_profile("solstice-oauth") is profile
+    module_file = Path(sys.modules[type(profile).__module__].__file__)
+    assert module_file == solstice_home / "plugins" / "solstice" / "__init__.py"
+    assert "gemini-4-argon" in profile.fallback_models
+
+
+def test_solstice_is_off_every_discovery_surface_until_signed_in_but_always_resolves(solstice_home):
+    home = solstice_home
+    assert providers.provider_source("solstice") == "user"
     from hermes_cli.models import list_available_providers
     from hermes_cli.models_catalog_static import listed_canonical_providers
     from hermes_cli.provider_catalog import provider_catalog

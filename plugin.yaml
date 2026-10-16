@@ -1,5 +1,7 @@
-name: solstice-provider
+name: solstice
 kind: model-provider
-version: 0.1.0
+version: 0.2.0
 description: Solstice (per-user-quota OAuth, pre-release)
 author: Nous Research
+# Gemini 4 Argon's wire support (thinkingLevel gating, long-decode resume) landed in core 0.22.0.
+requires_hermes: ">=0.22.0"

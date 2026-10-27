@@ -110,3 +110,47 @@ def test_brokered_opaque_bearer_rotates_on_stored_expiry_and_keeps_the_refresh_t
     assert pool.try_refresh_current() is None
     pool.mark_exhausted_and_rotate(status_code=401, api_key_hint="ya29.revoked")
     assert json.loads((home / "auth.json").read_text())["credential_pool"][name][0]["last_status"] == STATUS_DEAD
+
+
+class _Response:
+    def __init__(self, status_code: int, payload: dict):
+        self.status_code, self._payload = status_code, payload
+
+    def json(self) -> dict:
+        return self._payload
+
+
+def _refresh_through_broker(solstice_home, monkeypatch, status_code: int, payload: dict):
+    """Lease an expired Solstice row so the pool refreshes it through the real broker code, with the portal's
+    answer stubbed; returns the row as persisted afterwards."""
+    from agent.credential_pool import load_pool
+    from hermes_cli import auth_constants
+
+    monkeypatch.setattr(hermes_cli.auth, "resolve_nous_access_token", lambda *a, **k: "nous-at")
+    monkeypatch.setattr(auth_constants.httpx, "request", lambda *a, **k: _Response(status_code, payload))
+    _write_pool(solstice_home, "solstice",
+                _pool_row("solstice", access="ya29.stale", expires_at_ms=int(time.time() * 1000) - 1000))
+    load_pool("solstice").select()
+    return json.loads((solstice_home / "auth.json").read_text())["credential_pool"]["solstice"][0]
+
+
+def test_a_refresh_google_calls_dead_signs_the_user_out(solstice_home, monkeypatch):
+    from agent.credential_pool import STATUS_DEAD
+
+    for google_error in ("invalid_grant", "unauthorized_client"):
+        row = _refresh_through_broker(solstice_home, monkeypatch, 400, {"error": google_error})
+        assert row["last_status"] == STATUS_DEAD, google_error
+
+
+def test_a_transient_portal_or_google_failure_keeps_the_sign_in(solstice_home, monkeypatch):
+    """A Google 5xx (relayed as 502), the portal's rate limit, a rejected Nous token or a portal 500 says nothing
+    about the Google grant: the row is benched for a cooldown and keeps its refresh token, never marked dead."""
+    from agent.credential_pool import STATUS_DEAD
+
+    for status_code, payload in ((502, {"error": "gemini_auth_refresh_failed"}),
+                                 (429, {"error": "temporarily_unavailable"}),
+                                 (401, {"error": "invalid_token"}),
+                                 (500, {"error": "server_error"})):
+        row = _refresh_through_broker(solstice_home, monkeypatch, status_code, payload)
+        assert row["last_status"] != STATUS_DEAD, (status_code, payload)
+        assert row["refresh_token"] == "1//rt-0"

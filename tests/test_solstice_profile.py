@@ -145,12 +145,34 @@ def test_a_refresh_google_calls_dead_signs_the_user_out(solstice_home, monkeypat
 def test_a_transient_portal_or_google_failure_keeps_the_sign_in(solstice_home, monkeypatch):
     """A Google 5xx (relayed as 502), the portal's rate limit, a rejected Nous token or a portal 500 says nothing
     about the Google grant: the row is benched for a cooldown and keeps its refresh token, never marked dead."""
-    from agent.credential_pool import STATUS_DEAD
+    from agent.credential_pool import STATUS_EXHAUSTED
 
     for status_code, payload in ((502, {"error": "gemini_auth_refresh_failed"}),
                                  (429, {"error": "temporarily_unavailable"}),
                                  (401, {"error": "invalid_token"}),
                                  (500, {"error": "server_error"})):
         row = _refresh_through_broker(solstice_home, monkeypatch, status_code, payload)
-        assert row["last_status"] != STATUS_DEAD, (status_code, payload)
+        assert row["last_status"] == STATUS_EXHAUSTED, (status_code, payload)
         assert row["refresh_token"] == "1//rt-0"
+
+
+def test_a_missing_nous_sign_in_does_not_kill_the_solstice_sign_in(solstice_home, monkeypatch):
+    """The broker needs the user's Nous token; losing it is a Nous problem, so the Solstice row is benched and
+    comes back once Nous is signed in again, instead of staying dead."""
+    from agent.credential_pool import STATUS_EXHAUSTED, load_pool
+    from hermes_cli import auth_constants
+
+    def no_nous(*a, **k):
+        raise RuntimeError("not signed in to Nous")
+
+    def portal(*a, **k):
+        raise AssertionError("the portal must not be called without a Nous token")
+
+    monkeypatch.setattr(hermes_cli.auth, "resolve_nous_access_token", no_nous)
+    monkeypatch.setattr(auth_constants.httpx, "request", portal)
+    _write_pool(solstice_home, "solstice",
+                _pool_row("solstice", access="ya29.stale", expires_at_ms=int(time.time() * 1000) - 1000))
+    load_pool("solstice").select()
+    row = json.loads((solstice_home / "auth.json").read_text())["credential_pool"]["solstice"][0]
+    assert row["last_status"] == STATUS_EXHAUSTED
+    assert row["refresh_token"] == "1//rt-0"

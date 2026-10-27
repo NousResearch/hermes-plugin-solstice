@@ -60,7 +60,7 @@ def _nas_request(method: str, path: str, *, json: Mapping[str, Any] | None = Non
 def _error_code(response: Any) -> str:
     try:
         payload = response.json()
-    except Exception:
+    except ValueError:  # a non-JSON error body (proxy page): no code to relay
         return ""
     return str(payload.get("error") or "").strip() if isinstance(payload, dict) else ""
 

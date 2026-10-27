@@ -165,8 +165,11 @@ def test_a_missing_nous_sign_in_does_not_kill_the_solstice_sign_in(solstice_home
     def no_nous(*a, **k):
         raise RuntimeError("not signed in to Nous")
 
+    portal_calls: list = []
+
     def portal(*a, **k):
-        raise AssertionError("the portal must not be called without a Nous token")
+        portal_calls.append(a)
+        raise RuntimeError("unreachable")
 
     monkeypatch.setattr(hermes_cli.auth, "resolve_nous_access_token", no_nous)
     monkeypatch.setattr(auth_constants.httpx, "request", portal)
@@ -176,3 +179,4 @@ def test_a_missing_nous_sign_in_does_not_kill_the_solstice_sign_in(solstice_home
     row = json.loads((solstice_home / "auth.json").read_text())["credential_pool"]["solstice"][0]
     assert row["last_status"] == STATUS_EXHAUSTED
     assert row["refresh_token"] == "1//rt-0"
+    assert portal_calls == []

@@ -37,7 +37,7 @@ To try a model directly:
 hermes chat --provider solstice -m gemini-4-argon
 ```
 
-Models offered: `gemini-3.1-pro` (default), `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.5-flash-lite`.
+Models offered: `gemini-3.1-pro-preview` (default), `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.5-flash-lite`.
 Each model has its own quota. When a model runs out, Google returns HTTP 429 or 402 ("usage limit"). Switch
 to another model; Flash Lite is listed last as the one to fall back to.
 
